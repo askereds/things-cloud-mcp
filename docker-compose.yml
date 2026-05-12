@@ -1,0 +1,25 @@
+services:
+  things-cloud-mcp:
+    build: .
+    image: things-cloud-mcp:latest
+    container_name: things_cloud_mcp
+    restart: unless-stopped
+    user: "1000:1000"
+    env_file:
+      - .env
+    environment:
+      PORT: "8788"
+      DATA_DIR: /data
+      OAUTH_ENABLED: "false"
+    volumes:
+      - things_data:/data
+    networks: [web]
+    expose:
+      - "8788"
+
+volumes:
+  things_data:
+
+networks:
+  web:
+    external: true

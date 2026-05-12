@@ -4,6 +4,8 @@ things-cloud-mcp
 cleanup-tool
 cmd/
 data/
+.env
+*.local
 .worktrees/
 .claude/skills/
 .claude/worktrees/
