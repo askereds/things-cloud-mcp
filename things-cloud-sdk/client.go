@@ -10,10 +10,13 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"regexp"
 	"time"
 
 	"golang.org/x/time/rate"
 )
+
+var authorizationDumpPattern = regexp.MustCompile(`(?im)^(Authorization:\s*)(.+)$`)
 
 const (
 	// APIEndpoint is the public culturedcode https endpoint
@@ -173,16 +176,20 @@ func (c *Client) do(req *http.Request) (*http.Response, error) {
 
 	if c.Debug {
 		bs, _ := httputil.DumpRequest(req, true)
-		log.Println("REQUEST:", string(bs))
+		log.Println("REQUEST:", redactSensitiveDump(string(bs)))
 	}
 
 	resp, err := c.client.Do(req)
 	if c.Debug {
 		if err == nil {
 			bs, _ := httputil.DumpResponse(resp, true)
-			log.Println("RESPONSE:", string(bs))
+			log.Println("RESPONSE:", redactSensitiveDump(string(bs)))
 		}
 		log.Println()
 	}
 	return resp, err
+}
+
+func redactSensitiveDump(input string) string {
+	return authorizationDumpPattern.ReplaceAllString(input, "${1}<redacted>")
 }

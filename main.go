@@ -586,16 +586,20 @@ func newTaskUpdate() *taskUpdate {
 	return &taskUpdate{fields: map[string]any{"md": nowTs()}}
 }
 
-func (u *taskUpdate) Title(s string) *taskUpdate       { u.fields["tt"] = s; return u }
-func (u *taskUpdate) Note(text string) *taskUpdate      { u.fields["nt"] = textNote(text); return u }
-func (u *taskUpdate) ClearNote() *taskUpdate            { u.fields["nt"] = emptyNote(); return u }
-func (u *taskUpdate) Status(ss int) *taskUpdate         { u.fields["ss"] = ss; return u }
-func (u *taskUpdate) StopDate(ts float64) *taskUpdate   { u.fields["sp"] = ts; return u }
-func (u *taskUpdate) Trash(b bool) *taskUpdate          { u.fields["tr"] = b; return u }
-func (u *taskUpdate) Deadline(dd int64) *taskUpdate     { u.fields["dd"] = dd; return u }
-func (u *taskUpdate) Reminder(rmd int64) *taskUpdate    { u.fields["rmd"] = rmd; return u }
-func (u *taskUpdate) AlarmOffset(ato int) *taskUpdate   { u.fields["ato"] = ato; return u }
-func (u *taskUpdate) ClearReminder() *taskUpdate        { u.fields["rmd"] = nil; u.fields["ato"] = nil; return u }
+func (u *taskUpdate) Title(s string) *taskUpdate      { u.fields["tt"] = s; return u }
+func (u *taskUpdate) Note(text string) *taskUpdate    { u.fields["nt"] = textNote(text); return u }
+func (u *taskUpdate) ClearNote() *taskUpdate          { u.fields["nt"] = emptyNote(); return u }
+func (u *taskUpdate) Status(ss int) *taskUpdate       { u.fields["ss"] = ss; return u }
+func (u *taskUpdate) StopDate(ts float64) *taskUpdate { u.fields["sp"] = ts; return u }
+func (u *taskUpdate) Trash(b bool) *taskUpdate        { u.fields["tr"] = b; return u }
+func (u *taskUpdate) Deadline(dd int64) *taskUpdate   { u.fields["dd"] = dd; return u }
+func (u *taskUpdate) Reminder(rmd int64) *taskUpdate  { u.fields["rmd"] = rmd; return u }
+func (u *taskUpdate) AlarmOffset(ato int) *taskUpdate { u.fields["ato"] = ato; return u }
+func (u *taskUpdate) ClearReminder() *taskUpdate {
+	u.fields["rmd"] = nil
+	u.fields["ato"] = nil
+	return u
+}
 func (u *taskUpdate) Scheduled(sr, tir int64) *taskUpdate {
 	u.fields["sr"] = sr
 	u.fields["tir"] = tir
@@ -927,8 +931,8 @@ type UserInfo struct {
 type UserManager struct {
 	users     map[string]*ThingsMCP // keyed by email
 	proxyURLs []*url.URL
-	oauth     *OAuthServer          // set after OAuthServer is created
-	diagStore *DiagStore            // set after OAuthServer is created
+	oauth     *OAuthServer // set after OAuthServer is created
+	diagStore *DiagStore   // set after OAuthServer is created
 	mu        sync.RWMutex
 }
 
@@ -1378,12 +1382,12 @@ func errResult(msg string) *mcp.CallToolResult {
 // ---------------------------------------------------------------------------
 
 type diagStep struct {
-	Step        int    `json:"step"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Status      string `json:"status"`
-	DurationMs  int64  `json:"durationMs"`
-	Details     any    `json:"details"`
+	Step        int      `json:"step"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Status      string   `json:"status"`
+	DurationMs  int64    `json:"durationMs"`
+	Details     any      `json:"details"`
 	Log         []string `json:"log"`
 }
 
@@ -1451,7 +1455,10 @@ func maskEmail(email string) string {
 	return string(parts[0][0]) + "***@" + parts[1]
 }
 
-var diagStepDefs = []struct{ num int; name, desc string }{
+var diagStepDefs = []struct {
+	num        int
+	name, desc string
+}{
 	{1, "credential_verification", "Verify Things Cloud credentials and account status"},
 	{2, "fetch_history", "Fetch all account histories and select best one"},
 	{3, "sync_history", "Sync selected history to get latest server index"},
@@ -1468,7 +1475,7 @@ func addSkippedSteps(report *diagReport, fromStep int) {
 		}
 		report.Steps = append(report.Steps, diagStep{
 			Step: sd.num, Name: sd.name, Description: sd.desc,
-			Status: "skipped",
+			Status:  "skipped",
 			Details: map[string]any{"reason": "previous step failed"},
 		})
 	}
@@ -3475,8 +3482,6 @@ func (t *ThingsMCP) handleEditTask(_ context.Context, req mcp.CallToolRequest) (
 	return jsonResult(map[string]string{"status": "updated", "uuid": taskUUID}), nil
 }
 
-
-
 // ---------------------------------------------------------------------------
 // Checklist item operations
 // ---------------------------------------------------------------------------
@@ -3556,7 +3561,6 @@ func (t *ThingsMCP) handleDeleteChecklistItem(_ context.Context, req mcp.CallToo
 // ---------------------------------------------------------------------------
 // Batch operations
 // ---------------------------------------------------------------------------
-
 
 // ---------------------------------------------------------------------------
 // MCP tool definitions
@@ -3976,18 +3980,23 @@ func main() {
 	log.SetPrefix("[things-mcp] ")
 	proxyURLs := parseProxyURLs(os.Getenv("PROXY_URLS"))
 	log.Printf("Loaded %d proxy URLs", len(proxyURLs))
+	oauthEnabled := os.Getenv("OAUTH_ENABLED") != "false"
 
 	um := NewUserManager()
 	um.proxyURLs = proxyURLs
 
-	// Initialize OAuth server with persistent state
-	dataDir := os.Getenv("DATA_DIR")
-	if dataDir == "" {
-		dataDir = "data"
+	if oauthEnabled {
+		// Initialize OAuth server with persistent state only when cloud-client OAuth is enabled.
+		dataDir := os.Getenv("DATA_DIR")
+		if dataDir == "" {
+			dataDir = "data"
+		}
+		oauth := NewOAuthServer(um, dataDir)
+		um.oauth = oauth
+		um.diagStore = &DiagStore{db: oauth.db}
+	} else {
+		log.Printf("OAuth disabled; Basic auth only")
 	}
-	oauth := NewOAuthServer(um, dataDir)
-	um.oauth = oauth
-	um.diagStore = &DiagStore{db: oauth.db}
 
 	hooks := &server.Hooks{}
 	hooks.AddAfterInitialize(func(ctx context.Context, id any, message *mcp.InitializeRequest, result *mcp.InitializeResult) {
@@ -4044,22 +4053,29 @@ func main() {
 	mux.HandleFunc("/mcp", func(w http.ResponseWriter, r *http.Request) {
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
-			base := getBaseURL(r)
-			w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="`+base+`/.well-known/oauth-protected-resource"`)
+			if oauthEnabled {
+				base := getBaseURL(r)
+				w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="`+base+`/.well-known/oauth-protected-resource"`)
+			} else {
+				w.Header().Set("WWW-Authenticate", `Basic realm="things-cloud-mcp"`)
+			}
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
 		streamServer.ServeHTTP(w, r)
 	})
 
-	// OAuth 2.1 routes (path-aware per RFC 9728: client appends resource path)
-	mux.HandleFunc("/.well-known/oauth-protected-resource", oauth.handleProtectedResourceMetadata)
-	mux.HandleFunc("/.well-known/oauth-protected-resource/mcp", oauth.handleProtectedResourceMetadata)
-	mux.HandleFunc("/.well-known/oauth-authorization-server", oauth.handleAuthServerMetadata)
-	mux.HandleFunc("/.well-known/oauth-authorization-server/mcp", oauth.handleAuthServerMetadata)
-	mux.HandleFunc("/register", oauth.handleRegister)
-	mux.HandleFunc("/authorize", oauth.handleAuthorize)
-	mux.HandleFunc("/token", oauth.handleToken)
+	if oauthEnabled && um.oauth != nil {
+		oauth := um.oauth
+		// OAuth 2.1 routes (path-aware per RFC 9728: client appends resource path)
+		mux.HandleFunc("/.well-known/oauth-protected-resource", oauth.handleProtectedResourceMetadata)
+		mux.HandleFunc("/.well-known/oauth-protected-resource/mcp", oauth.handleProtectedResourceMetadata)
+		mux.HandleFunc("/.well-known/oauth-authorization-server", oauth.handleAuthServerMetadata)
+		mux.HandleFunc("/.well-known/oauth-authorization-server/mcp", oauth.handleAuthServerMetadata)
+		mux.HandleFunc("/register", oauth.handleRegister)
+		mux.HandleFunc("/authorize", oauth.handleAuthorize)
+		mux.HandleFunc("/token", oauth.handleToken)
+	}
 
 	mux.HandleFunc("/docs", handleDocsPage)
 	mux.HandleFunc("/how-it-works", handleHowItWorksPage)
@@ -4087,6 +4103,10 @@ func main() {
 		}
 		token := strings.TrimPrefix(r.URL.Path, "/d/")
 		if _, err := uuid.Parse(token); err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		if um.diagStore == nil {
 			http.NotFound(w, r)
 			return
 		}
